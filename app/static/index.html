@@ -10,7 +10,7 @@
   <script src="https://cdn.jsdelivr.net/npm/marked@12/marked.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
   <!-- 设计系统字体回退：中文优先系统字体栈，避免外部依赖 -->
-  <link rel="stylesheet" href="/static/css/style.css?v=20250904">
+  <link rel="stylesheet" href="/static/css/style.css?v=20250905">
   <script>
     /* Tailwind 自定义主题：设计系统色彩 */
     tailwind.config = {
@@ -212,33 +212,7 @@
         题库主题
       </h2>
             <div class="flex items-center gap-2">
-        <!-- 主操作：新增题目 -->
-        <button onclick="openCardModal()"
-          class="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-primary text-white text-sm font-bold cursor-pointer transition-colors duration-200 hover:bg-primaryLight">
-          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-          新增题目
-        </button>
-        <!-- 新建下拉：导入笔记 / 新建题库 -->
-        <div class="relative">
-          <button type="button" onclick="toggleDropdown('newMenu')"
-            class="flex items-center gap-1 px-3 py-2 rounded-xl bg-white border border-indigo-100 text-sm font-medium text-slate-600 cursor-pointer transition-colors duration-200 hover:bg-indigo-50">
-            新建
-            <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
-          </button>
-          <div id="newMenu" class="dropdown-menu hidden absolute right-0 mt-2 w-44 bg-white rounded-xl border border-indigo-100 shadow-lg py-1 z-50">
-            <button onclick="closeDropdowns(); openImportModal()"
-              class="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-indigo-50 cursor-pointer transition-colors duration-200 text-left">
-              <svg class="w-4 h-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-              导入笔记
-            </button>
-            <button onclick="closeDropdowns(); createDeck()"
-              class="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-indigo-50 cursor-pointer transition-colors duration-200 text-left">
-              <svg class="w-4 h-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
-              新建题库
-            </button>
-          </div>
-        </div>
-        <!-- 设置下拉：学习题库设置 / AI 自动分类 -->
+        <!-- 设置下拉：学习题库设置 / AI 自动分类（全局操作保留在右上角） -->
         <div class="relative">
           <button type="button" onclick="toggleDropdown('setMenu')" title="题库设置"
             class="p-2 rounded-xl bg-white border border-indigo-100 text-slate-600 cursor-pointer transition-colors duration-200 hover:bg-indigo-50">
@@ -578,6 +552,6 @@
 <!-- ========== Toast 提示 ========== -->
 <div id="toastBox" class="fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] space-y-2 pointer-events-none"></div>
 
-<script src="/static/js/app.js?v=20250904"></script>
+<script src="/static/js/app.js?v=20250905"></script>
 </body>
 </html>
