@@ -1,0 +1,346 @@
+/*
+ * 学习卡片 - 自定义样式
+ * 补充 Tailwind 无法覆盖的部分：3D 翻转动画、答案排版、过渡细节
+ */
+
+/* ---------- 卡片 3D 翻转 ---------- */
+/* 透视容器：高度由学习视图的 flex 布局填满剩余空间（整体不滚动，长文在卡片内部滚动） */
+.flip-card {
+  perspective: 1600px;
+  height: 100%;
+}
+
+/* ---------- 学习界面固定布局（整体不滚动） ---------- */
+/* 学习视图占满视口可用高度；内部用 flex 纵向分配：控制栏/进度/按钮固定，
+   卡片区域 flex-1 撑满剩余空间，长内容仅在该卡片内部滚动，页面本身不滚动 */
+#view-study {
+  height: calc(100vh - 7rem);
+  height: calc(100dvh - 7rem);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+/* 必须覆盖上方的 display:flex，否则 switchView 加的 .hidden 不生效（ID 优先级高于类） */
+#view-study.hidden {
+  display: none;
+}
+#view-study .study-controls,
+#view-study .study-progress {
+  flex: 0 0 auto;
+}
+/* 仅在未隐藏时赋予 flex 布局，避免与 .hidden 类优先级冲突（用 :not(.hidden) 保证隐藏一定生效） */
+#view-study #cardArea:not(.hidden) {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+#view-study #deckEmpty:not(.hidden),
+#view-study #deckDone:not(.hidden) {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+#view-study #cardArea .flip-card {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* ---------- 题库管理 / 错题本：固定高度布局 ---------- */
+/* 与学习视图一致占满视口可用高度；工具栏/元信息/分页固定上下，题目列表仅在内部滚动 */
+#view-manage,
+#view-wrongbook {
+  height: calc(100vh - 7rem);
+  height: calc(100dvh - 7rem);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+/* ID 优先级高于 .hidden，必须显式补一条让切换隐藏生效 */
+#view-manage.hidden,
+#view-wrongbook.hidden {
+  display: none;
+}
+#view-manage .manage-toolbar,
+#view-manage .manage-meta,
+#view-manage .manage-pagination,
+#view-wrongbook > div:first-child {
+  flex: 0 0 auto;
+}
+#view-manage #cardsList,
+#view-wrongbook #wrongList {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+#view-wrongbook #wrongEmpty:not(.hidden) {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+#view-study #cardArea .study-actions,
+#view-study #cardArea .study-nav,
+#view-study #cardArea .study-hint {
+  flex: 0 0 auto;
+}
+
+.card-inner {
+  position: relative;
+  /* 继承容器高度，使正反面均撑满卡片 */
+  height: 100%;
+  transition: transform 0.55s cubic-bezier(0.4, 0.1, 0.2, 1);
+  transform-style: preserve-3d;
+}
+
+.flip-card.flipped .card-inner {
+  transform: rotateY(180deg);
+}
+
+/* 正反两面共用：背面旋转 180 度，配合 backface-visibility 隐藏 */
+.card-face {
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+.card-back {
+  position: absolute;
+  inset: 0;
+  transform: rotateY(180deg);
+}
+
+/* 无障碍：尊重系统减少动态效果设置 */
+@media (prefers-reduced-motion: reduce) {
+  .card-inner {
+    transition: none;
+  }
+}
+
+/* ---------- 卡片背面 AI 补充讲解框 ---------- */
+/* 方案 A：桌面双栏（左答案 / 右讲解）各自独立滚动，取消 38% 高度上限，
+   避免讲解长文被截断；移动端单列堆叠由 card-back 整体滚动承载 */
+#aiSummaryBox #cardAiSummary {
+  /* 讲解文本保持自然行高，长文可读 */
+  word-break: break-word;
+}
+
+/* AI 讲解仅用到三级/四级标题（### / ####），固定字号层级，
+   避免 prose 默认 h3 过大与卡片标题抢视觉层级（层级塌陷） */
+#cardAiSummary :is(h1, h2, h3) {
+  font-size: 1.05rem;
+  line-height: 1.5;
+  margin: 0.75rem 0 0.4rem;
+  font-weight: 700;
+}
+#cardAiSummary :is(h4, h5, h6) {
+  font-size: 0.95rem;
+  line-height: 1.5;
+  margin: 0.6rem 0 0.35rem;
+  font-weight: 700;
+}
+#cardAiSummary h3:first-child,
+#cardAiSummary h4:first-child {
+  margin-top: 0;
+}
+/* 讲解内部行内代码/代码块复用答案区的配色，保证一致性 */
+#cardAiSummary code {
+  background: #EEF2FF;
+  border: 1px solid #E0E7FF;
+  border-radius: 6px;
+  padding: 1px 5px;
+  font-size: 0.85em;
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  color: #4338CA;
+}
+#cardAiSummary pre {
+  background: #1E1B4B;
+  color: #EEF2FF;
+  border-radius: 0.75rem;
+  padding: 1rem;
+  overflow-x: auto;
+}
+#cardAiSummary pre code {
+  background: transparent;
+  border: none;
+  color: inherit;
+  padding: 0;
+  font-size: 0.85em;
+}
+#cardAiSummary table {
+  width: 100%;
+  border-collapse: collapse;
+  display: block;
+  overflow-x: auto;
+}
+#cardAiSummary th,
+#cardAiSummary td {
+  border: 1px solid #E0E7FF;
+  padding: 0.4rem 0.65rem;
+  text-align: left;
+}
+#cardAiSummary th {
+  background: #EEF2FF;
+  color: #312E81;
+  font-weight: 700;
+}
+#cardAiSummary blockquote {
+  border-left: 4px solid #818CF8;
+  background: rgba(238, 242, 255, 0.6);
+  padding: 0.5rem 0.9rem;
+  border-radius: 0 0.5rem 0.5rem 0;
+  color: #3730A3;
+  font-style: normal;
+}
+#cardAiSummary blockquote p { margin: 0; }
+#cardAiSummary img { max-width: 100%; border-radius: 0.75rem; }
+#cardAiSummary hr { border-color: #E0E7FF; }
+
+/* 翻转后正面隐藏（避免遮挡背面交互） */
+.flip-card.flipped .card-front {
+  visibility: hidden;
+}
+.flip-card:not(.flipped) .card-back {
+  visibility: hidden;
+}
+
+/* ---------- 弹窗动效 ---------- */
+/* 仅在没有 hidden 类时启用 flex 居中，避免与 Tailwind 的 .hidden(display:none) 冲突 */
+.modal-overlay:not(.hidden) {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.modal-overlay {
+  animation: fadeIn 0.2s ease-out;
+}
+.modal-panel {
+  animation: popIn 0.25s cubic-bezier(0.34, 1.4, 0.64, 1);
+}
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes popIn {
+  from { opacity: 0; transform: scale(0.95) translateY(8px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .modal-overlay, .modal-panel { animation: none; }
+}
+
+/* ---------- 答案正文 Markdown 排版（prose 基础上做主题定制） ---------- */
+
+/* 行内代码：靛蓝浅底胶囊样式 */
+.answer-body code {
+  background: #EEF2FF;
+  border: 1px solid #E0E7FF;
+  border-radius: 6px;
+  padding: 1px 5px;
+  font-size: 0.85em;
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  color: #4338CA;
+}
+.answer-body strong, .answer-body b {
+  color: #312E81;
+}
+
+/* 标题与正文色统一到设计系统墨色 */
+.answer-body :is(h1, h2, h3, h4, h5, h6) {
+  color: #312E81;
+}
+
+/* 代码块：深靛蓝底高对比，横向滚动防溢出 */
+.answer-body pre {
+  background: #1E1B4B;
+  color: #EEF2FF;
+  border-radius: 0.75rem;
+  padding: 1rem;
+  overflow-x: auto;
+}
+.answer-body pre code {
+  background: transparent;
+  border: none;
+  color: inherit;
+  padding: 0;
+  font-size: 0.85em;
+}
+
+/* 表格：细边框 + 表头浅靛蓝底 */
+.answer-body table {
+  width: 100%;
+  border-collapse: collapse;
+  display: block;
+  overflow-x: auto;   /* 宽表格在小屏内滚动，避免撑破卡片 */
+}
+.answer-body th,
+.answer-body td {
+  border: 1px solid #E0E7FF;
+  padding: 0.4rem 0.65rem;
+  text-align: left;
+}
+.answer-body th {
+  background: #EEF2FF;
+  color: #312E81;
+  font-weight: 700;
+}
+
+/* 引用块：左侧靛蓝竖线 + 浅底圆角 */
+.answer-body blockquote {
+  border-left: 4px solid #818CF8;
+  background: rgba(238, 242, 255, 0.6);
+  padding: 0.5rem 0.9rem;
+  border-radius: 0 0.5rem 0.5rem 0;
+  color: #3730A3;
+  font-style: normal;
+}
+.answer-body blockquote p {
+  margin: 0;
+}
+
+/* 图片与分割线适配 */
+.answer-body img {
+  max-width: 100%;
+  border-radius: 0.75rem;
+}
+.answer-body hr {
+  border-color: #E0E7FF;
+}
+
+/* Toast 入场动画 */
+.toast-item {
+  animation: toastIn 0.25s ease-out;
+}
+@keyframes toastIn {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .toast-item { animation: none; }
+}
+
+/* ---------- 全局细滚动条 ---------- */
+/* Firefox：细滚动条 + 靛蓝浅色滑块 */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #C7D2FE transparent;
+}
+/* WebKit（Chrome / Safari / Edge）：6px 细滑块，圆角、半透明轨道 */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background-color: #C7D2FE;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: #A5B4FC;
+}
+/* 横向滚动区域（如答案内表格）同样应用细滚动条 */

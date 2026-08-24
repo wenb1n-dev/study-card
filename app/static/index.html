@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>学习卡片 StudyCard</title>
+  <!-- Tailwind CSS CDN（含 typography 插件：Markdown 答案排版） -->
+  <script src="https://cdn.tailwindcss.com?plugins=typography"></script>
+  <!-- Markdown 渲染与 XSS 消毒（答案正文支持完整 Markdown 语法） -->
+  <script src="https://cdn.jsdelivr.net/npm/marked@12/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
+  <!-- 设计系统字体回退：中文优先系统字体栈，避免外部依赖 -->
+  <link rel="stylesheet" href="/static/css/style.css?v=20250824">
+  <script>
+    /* Tailwind 自定义主题：设计系统色彩 */
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            primary: '#4F46E5',      // 主色：学习靛蓝
+            primaryLight: '#818CF8', // 辅助色
+            cta: '#22C55E',          // CTA/正确绿
+            danger: '#EF4444',       // 错误红
+            bg: '#EEF2FF',           // 页面背景
+            ink: '#312E81',          // 深色文字（保证对比度）
+          },
+          fontFamily: {
+            sans: ['-apple-system', 'BlinkMacSystemFont', 'PingFang SC', 'Hiragino Sans GB',
+                   'Microsoft YaHei', 'Segoe UI', 'Roboto', 'sans-serif'],
+          },
+          borderRadius: { card: '1.25rem' },
+        }
+      }
+    }
+  </script>
+</head>
+<body class="bg-bg font-sans text-ink min-h-screen antialiased">
+
+<!-- ========== 顶部导航 ========== -->
+<header class="sticky top-4 left-4 right-4 z-40 mx-4 rounded-2xl bg-white/85 backdrop-blur border border-indigo-100 shadow-sm">
+  <div class="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-3">
+    <!-- Logo 与应用名 -->
+    <div class="flex items-center gap-2.5 shrink-0 cursor-pointer" onclick="switchView('study')" role="button" aria-label="回到学习页">
+      <svg class="w-8 h-8 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg>
+      <span class="text-lg font-bold tracking-tight">学习卡片</span>
+    </div>
+    <!-- 导航标签 -->
+    <nav class="flex items-center gap-1 sm:gap-2 overflow-x-auto" aria-label="主导航">
+      <button data-nav="study" onclick="switchView('study')"
+        class="nav-btn flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium cursor-pointer transition-colors duration-200 hover:bg-indigo-50">
+        <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="4" width="20" height="16" rx="3"/><path d="M2 9h20"/></svg>
+        学习
+      </button>
+      <button data-nav="manage" onclick="switchView('manage')"
+        class="nav-btn flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium cursor-pointer transition-colors duration-200 hover:bg-indigo-50">
+        <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+        题库管理
+      </button>
+      <button data-nav="wrongbook" onclick="switchView('wrongbook')"
+        class="nav-btn relative flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium cursor-pointer transition-colors duration-200 hover:bg-indigo-50">
+        <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        错题本
+        <span id="wrongBadge" class="hidden absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-danger text-white text-[11px] leading-[18px] text-center font-bold"></span>
+      </button>
+      <button data-nav="settings" onclick="switchView('settings')"
+        class="nav-btn flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium cursor-pointer transition-colors duration-200 hover:bg-indigo-50">
+        <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        AI 设置
+      </button>
+    </nav>
+  </div>
+</header>
+
+<main class="max-w-6xl mx-auto px-4 sm:px-6 py-6 pb-6">
+
+  <!-- ========== 视图一：学习模式 ========== -->
+  <section id="view-study" class="view hidden">
+    <!-- 牌组控制栏 -->
+    <div class="study-controls flex flex-wrap items-center justify-between gap-3 mb-5 shrink-0">
+      <div class="flex items-center gap-2">
+        <span class="text-sm font-medium text-indigo-900/70">牌组：</span>
+        <div class="flex bg-white rounded-xl border border-indigo-100 p-1 shadow-sm" role="tablist" aria-label="牌组选择">
+          <button id="modeAllBtn" onclick="setDeckMode('all')" class="deck-mode-btn cursor-pointer px-3 py-1.5 rounded-lg text-sm font-medium transition-colors duration-200" role="tab">全部题目</button>
+          <button id="modeWrongBtn" onclick="setDeckMode('wrong')" class="deck-mode-btn cursor-pointer px-3 py-1.5 rounded-lg text-sm font-medium transition-colors duration-200" role="tab">错题重练</button>
+        </div>
+      </div>
+      <label class="flex items-center gap-2 text-sm font-medium text-indigo-900/70 cursor-pointer select-none">
+        <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/><line x1="4" y1="4" x2="9" y2="9"/></svg>
+        打乱顺序
+        <button id="shuffleToggle" onclick="toggleShuffle()" role="switch" aria-checked="false"
+          class="relative w-11 h-6 rounded-full bg-gray-300 transition-colors duration-200 cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2">
+          <span class="absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform duration-200 translate-x-0"></span>
+        </button>
+      </label>
+    </div>
+
+    <!-- 进度条 -->
+    <div class="study-progress mb-3 flex items-center gap-3 shrink-0">
+      <div class="flex-1 h-2 bg-white rounded-full overflow-hidden border border-indigo-100">
+        <div id="progressBar" class="h-full bg-primary rounded-full transition-all duration-300" style="width: 0%"></div>
+      </div>
+      <span id="progressText" class="text-sm font-semibold tabular-nums whitespace-nowrap">0 / 0</span>
+    </div>
+
+    <!-- 卡片区域（flex-1 撑满剩余高度，显示态由 CSS :not(.hidden) 控制） -->
+    <div id="cardArea" class="relative">
+      <!-- 翻转卡片（CSS 3D） -->
+      <div id="flipCard" tabindex="0" role="button" aria-label="点击或按空格翻转卡片"
+        onclick="flipCard()" onkeydown="if(event.key==='Enter'){event.preventDefault();flipCard()}"
+        class="flip-card relative w-full flex-1 min-h-0 cursor-pointer outline-none focus-visible:ring-4 ring-primaryLight/60 rounded-card select-none">
+        <div id="cardInner" class="card-inner">
+          <!-- 正面：问题（高度撑满可用屏幕空间） -->
+          <div class="card-face card-front h-full bg-white border-2 border-indigo-100 shadow-[0_10px_30px_-10px_rgba(79,70,229,0.25)] rounded-card p-6 sm:p-10 flex flex-col items-center justify-center text-center gap-4">
+            <div id="cardTypeFront" class="absolute top-4 left-4 text-xs font-semibold px-2.5 py-1 rounded-full bg-indigo-50 text-primary border border-indigo-100">问答</div>
+            <div class="text-xs font-bold tracking-widest text-primaryLight uppercase">问题 · Question</div>
+            <h2 id="cardQuestion" class="text-xl sm:text-2xl font-bold leading-relaxed max-w-2xl break-words">加载中…</h2>
+            <div class="mt-4 flex items-center gap-1.5 text-xs text-slate-400">
+              <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+              点击卡片查看答案
+            </div>
+          </div>
+          <!-- 背面：默认单栏仅展示答案；有 AI 讲解内容时才分两栏（左答案/右讲解） -->
+          <div class="card-face card-back bg-gradient-to-br from-white to-indigo-50/80 border-2 border-primaryLight/40 shadow-[0_10px_30px_-10px_rgba(79,70,229,0.35)] rounded-card p-6 sm:p-8 flex flex-col overflow-y-auto lg:overflow-hidden">
+            <div class="flex items-center justify-between gap-2 mb-3 shrink-0">
+              <div class="flex items-center gap-2 min-w-0">
+                <div class="text-xs font-bold tracking-widest text-primary uppercase shrink-0">学习卡片 · 答案与讲解</div>
+                <!-- 生成按钮移至标题栏：始终可点，避免无讲解时右栏隐藏导致无法生成（阻止冒泡，避免触发翻转） -->
+                <button id="aiExplainBtn" type="button" onclick="event.stopPropagation(); aiExplainCurrentCard()"
+                  class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-indigo-50 border border-indigo-100 text-primary text-xs font-bold cursor-pointer transition-colors duration-200 hover:bg-indigo-100 focus:outline-none focus-visible:ring-2 ring-primary disabled:cursor-wait shrink-0">
+                  <svg id="aiExplainSpinnerCard" class="w-3.5 h-3.5 animate-spin hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M21 12a9 9 0 1 1-6.219-8.56" stroke-linecap="round"/></svg>
+                  <svg id="aiExplainSparkCard" class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.9 5.7L19.6 10l-5.7 1.9L12 17.6l-1.9-5.7L4.4 10l5.7-1.3z"/><path d="M19 15l.9 2.6L22.5 18.5l-2.6.9L19 22l-.9-2.6-2.6-.9 2.6-.9z"/></svg>
+                  <span id="aiExplainLabelCard">AI 讲解</span>
+                </button>
+              </div>
+              <div id="cardTypeBack" class="text-xs font-semibold px-2.5 py-1 rounded-full bg-indigo-50 text-primary border border-indigo-100 shrink-0">问答</div>
+            </div>
+            <!-- 双栏容器：有 AI 讲解内容时由 JS 加上 lg:grid-cols-2 分两栏，否则单栏满宽显示答案 -->
+            <div id="cardBackGrid" class="flex-1 min-h-0 grid grid-cols-1 gap-4 lg:gap-5">
+              <!-- 左栏：答案（始终显示） -->
+              <div class="flex flex-col min-h-0">
+                <div class="text-xs font-bold tracking-widest text-primary uppercase mb-2 shrink-0">答案 · Answer</div>
+                <div id="cardAnswer" class="answer-body prose prose-sm max-w-none flex-1 min-h-0 lg:overflow-y-auto text-slate-800"></div>
+              </div>
+              <!-- 右栏：AI 补充讲解（仅在有内容时显示，由 JS 切换 hidden） -->
+              <div id="aiExplainCol" class="hidden flex flex-col min-h-0 rounded-2xl bg-indigo-50/40 border border-indigo-100 p-4">
+                <div class="flex items-center gap-1.5 text-sm font-bold text-primary mb-2 shrink-0">
+                  <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.9 5.7L19.6 10l-5.7 1.9L12 17.6l-1.9-5.7L4.4 10l5.7-1.3z"/><path d="M19 15l.9 2.6L22.5 18.5l-2.6.9L19 22l-.9-2.6-2.6-.9 2.6-.9z"/></svg>
+                  AI 补充讲解
+                </div>
+                <div id="aiSummaryBox" class="hidden flex-1 min-h-0 lg:overflow-y-auto">
+                  <div id="cardAiSummary" class="prose prose-xs sm:prose-sm max-w-none text-slate-600 leading-relaxed break-words"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 答题操作按钮：浅色语义风格，满宽铺开、尺寸适中（不过胖也不过瘦） -->
+      <div class="study-actions mt-4 flex gap-3 shrink-0">
+        <button onclick="markResult('wrong')"
+          class="flex-1 flex items-center justify-center gap-2 py-3 rounded-2xl bg-danger/10 text-danger border-2 border-danger/30 text-sm font-semibold cursor-pointer transition-colors duration-200 hover:bg-danger hover:text-white hover:border-danger focus:outline-none focus-visible:ring-4 ring-danger/40">
+          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          不会
+        </button>
+        <button onclick="markResult('correct')"
+          class="flex-1 flex items-center justify-center gap-2 py-3 rounded-2xl bg-cta/10 text-cta border-2 border-cta/30 text-sm font-semibold cursor-pointer transition-colors duration-200 hover:bg-cta hover:text-white hover:border-cta focus:outline-none focus-visible:ring-4 ring-cta/40">
+          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+          会了
+        </button>
+      </div>
+
+      <!-- 前后导航 -->
+      <div class="study-nav mt-3 flex items-center justify-center gap-3 shrink-0">
+        <button onclick="prevCard()"
+          class="flex items-center gap-1 px-4 py-2 rounded-xl bg-white border border-indigo-100 text-sm font-medium cursor-pointer transition-colors duration-200 hover:bg-indigo-50 disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 ring-primary">
+          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6"/></svg>
+          上一题
+        </button>
+        <button onclick="nextCard()"
+          class="flex items-center gap-1 px-4 py-2 rounded-xl bg-white border border-indigo-100 text-sm font-medium cursor-pointer transition-colors duration-200 hover:bg-indigo-50 disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 ring-primary">
+          下一题
+          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
+        </button>
+      </div>
+      <p class="study-hint mt-3 text-center text-xs text-slate-400 shrink-0">快捷键：空格 翻转 · ← → 切换题目 · 1 不会 · 2 会了</p>
+    </div>
+
+    <!-- 空牌组提示 & 完成状态 -->
+    <div id="deckEmpty" class="hidden text-center">
+      <svg class="w-16 h-16 mx-auto text-indigo-200 mb-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="4" width="20" height="16" rx="3"/><path d="M2 9h20"/></svg>
+      <p id="deckEmptyText" class="text-slate-500 font-medium">题库为空，去「题库管理」添加题目吧</p>
+      <button onclick="switchView('manage')" class="mt-4 px-5 py-2.5 rounded-xl bg-primary text-white text-sm font-bold cursor-pointer transition-colors duration-200 hover:bg-primaryLight">前往题库管理</button>
+    </div>
+    <div id="deckDone" class="hidden text-center">
+      <svg class="w-16 h-16 mx-auto text-cta mb-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="8 12.5 11 15.5 16 9.5"/></svg>
+      <h3 class="text-xl font-bold mb-2">本轮学习完成！</h3>
+      <p id="doneStats" class="text-slate-500 mb-6"></p>
+      <div class="flex items-center justify-center gap-3">
+        <button onclick="restartDeck()" class="px-5 py-2.5 rounded-xl bg-primary text-white text-sm font-bold cursor-pointer transition-colors duration-200 hover:bg-primaryLight">再来一轮</button>
+        <button id="goWrongBookBtn" onclick="switchView('wrongbook')" class="hidden px-5 py-2.5 rounded-xl bg-danger/10 text-danger border-2 border-danger/30 text-sm font-bold cursor-pointer transition-colors duration-200 hover:bg-danger hover:text-white">复习错题本</button>
+      </div>
+    </div>
+  </section>
+
+   <!-- ========== 视图二：题库管理 ========== -->
+  <section id="view-manage" class="view hidden">
+    <!-- 工具栏：搜索 + 新增 + 导入 -->
+    <div class="manage-toolbar flex flex-col lg:flex-row gap-3 mb-5 shrink-0">
+      <div class="relative flex-1">
+        <svg class="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input id="searchInput" type="search" placeholder="搜索问题或答案关键词…" aria-label="搜索题目"
+          oninput="debounceSearch()"
+          class="w-full pl-10 pr-4 py-2.5 rounded-xl bg-white border border-indigo-100 text-sm focus:outline-none focus:ring-2 focus:ring-primary placeholder:text-slate-400">
+      </div>
+      <select id="typeFilter" onchange="loadCards()" aria-label="按类型筛选"
+        class="px-3 py-2.5 rounded-xl bg-white border border-indigo-100 text-sm cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary">
+        <option value="">全部类型</option>
+      </select>
+      <div class="flex gap-2">
+        <button onclick="openCardModal()"
+          class="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-primary text-white text-sm font-bold cursor-pointer transition-colors duration-200 hover:bg-primaryLight whitespace-nowrap focus:outline-none focus-visible:ring-2 ring-primary">
+          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          新增题目
+        </button>
+        <button onclick="openImportModal()"
+          class="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-white border-2 border-primary/40 text-primary text-sm font-bold cursor-pointer transition-colors duration-200 hover:bg-indigo-50 whitespace-nowrap focus:outline-none focus-visible:ring-2 ring-primary">
+          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          导入笔记
+        </button>
+      </div>
+    </div>
+    <p id="cardsMeta" class="manage-meta text-xs text-slate-400 mb-3 shrink-0"></p>
+    <!-- 题目列表（flex-1 内部滚动，固定高度不撑破页面） -->
+    <div id="cardsList" class="grid gap-3"></div>
+    <!-- 分页（固定底部） -->
+    <div id="pagination" class="manage-pagination mt-4 pt-3 border-t border-indigo-100 flex flex-wrap items-center justify-center gap-2 shrink-0"></div>
+  </section>
+
+  <!-- ========== 视图三：错题本 ========== -->
+  <section id="view-wrongbook" class="view hidden">
+    <div class="flex items-center justify-between mb-5 shrink-0">
+      <div>
+        <h2 class="text-lg font-bold">错题本</h2>
+        <p id="wrongMeta" class="text-xs text-slate-400 mt-1">共 0 题</p>
+      </div>
+      <button id="practiceWrongBtn" onclick="startWrongPractice()"
+        class="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-danger text-white text-sm font-bold cursor-pointer transition-colors duration-200 hover:bg-red-600 disabled:opacity-40 disabled:cursor-not-allowed">
+        <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+        错题重练
+      </button>
+    </div>
+    <div id="wrongList" class="grid gap-3"></div>
+    <div id="wrongEmpty" class="hidden text-center">
+      <svg class="w-16 h-16 mx-auto text-green-200 mb-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="8 12.5 11 15.5 16 9.5"/></svg>
+      <p class="text-slate-500 font-medium">太棒了，暂无错题记录！</p>
+    </div>
+  </section>
+
+  <!-- ========== 视图四：AI 设置 ========== -->
+  <section id="view-settings" class="view hidden">
+    <div class="max-w-xl mx-auto">
+      <div class="bg-white rounded-card border border-indigo-100 shadow-sm p-6 sm:p-8">
+        <div class="flex items-center gap-2 mb-1">
+          <svg class="w-5 h-5 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.9 5.7L19.6 10l-5.7 1.9L12 17.6l-1.9-5.7L4.4 10l5.7-1.3z"/></svg>
+          <h2 class="text-lg font-bold">通用 OpenAI 接口配置</h2>
+        </div>
+        <p class="text-xs text-slate-400 mb-6">兼容所有 OpenAI Chat Completions 协议的服务（官方、中转、Ollama、vLLM 等）</p>
+
+        <form onsubmit="saveAISettings(event)" class="space-y-5">
+          <div>
+            <label for="apiUrlInput" class="block text-sm font-semibold mb-1.5">接口地址 API URL</label>
+            <input id="apiUrlInput" type="url" placeholder="https://api.openai.com/v1/chat/completions"
+              class="w-full px-3.5 py-2.5 rounded-xl bg-bg border border-indigo-100 text-sm focus:outline-none focus:ring-2 focus:ring-primary">
+            <p class="mt-1 text-xs text-slate-400">填完整地址或 base_url 均可，自动补全 /chat/completions</p>
+          </div>
+          <div>
+            <label for="apiKeyInput" class="block text-sm font-semibold mb-1.5">API Key</label>
+            <input id="apiKeyInput" type="password" placeholder="sk-..." autocomplete="off"
+              class="w-full px-3.5 py-2.5 rounded-xl bg-bg border border-indigo-100 text-sm focus:outline-none focus:ring-2 focus:ring-primary">
+            <p id="keyHint" class="hidden mt-1 text-xs text-amber-600">已保存密钥（脱敏显示）。留空保存表示不修改原密钥。</p>
+          </div>
+          <div>
+            <label for="modelInput" class="block text-sm font-semibold mb-1.5">模型名称 Model</label>
+            <input id="modelInput" type="text" placeholder="gpt-4o-mini / deepseek-chat / qwen-plus ..."
+              class="w-full px-3.5 py-2.5 rounded-xl bg-bg border border-indigo-100 text-sm focus:outline-none focus:ring-2 focus:ring-primary">
+          </div>
+          <div class="flex items-center gap-3 pt-2">
+            <button type="submit"
+              class="px-5 py-2.5 rounded-xl bg-primary text-white text-sm font-bold cursor-pointer transition-colors duration-200 hover:bg-primaryLight focus:outline-none focus-visible:ring-2 ring-primary">保存配置</button>
+            <button type="button" onclick="testAIConnection()" id="testBtn"
+              class="flex items-center gap-1.5 px-5 py-2.5 rounded-xl bg-white border-2 border-primary/40 text-primary text-sm font-bold cursor-pointer transition-colors duration-200 hover:bg-indigo-50">
+              <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+              测试连接
+            </button>
+            <span id="testStatus" class="text-xs"></span>
+          </div>
+        </form>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- ========== 新增/编辑题目弹窗 ========== -->
+<div id="cardModal" class="modal-overlay hidden fixed inset-0 z-50 flex items-center justify-center p-4">
+  <div class="absolute inset-0 bg-ink/40 backdrop-blur-sm" onclick="closeCardModal()" aria-hidden="true"></div>
+  <div class="modal-panel relative w-full max-w-3xl bg-white rounded-card shadow-2xl p-6 sm:p-10 max-h-[90vh] overflow-y-auto">
+    <div class="flex items-center justify-between mb-5">
+      <h3 id="cardModalTitle" class="text-lg font-bold">新增题目</h3>
+      <button onclick="closeCardModal()" aria-label="关闭弹窗"
+        class="p-2 rounded-lg cursor-pointer transition-colors duration-200 hover:bg-gray-100">
+        <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <form onsubmit="submitCardForm(event)" class="space-y-4">
+      <input type="hidden" id="editCardId">
+      <div>
+        <label for="qInput" class="block text-sm font-semibold mb-1.5">问题 <span class="text-danger">*</span></label>
+        <textarea id="qInput" rows="2" required placeholder="卡片正面展示的问题"
+          class="w-full px-3.5 py-2.5 rounded-xl bg-bg border border-indigo-100 text-sm focus:outline-none focus:ring-2 focus:ring-primary resize-y"></textarea>
+      </div>
+      <div>
+        <label for="aInput" class="block text-sm font-semibold mb-1.5">答案 <span class="text-danger">*</span></label>
+        <textarea id="aInput" rows="7" required placeholder="卡片背面展示的答案内容（支持 Markdown：代码块、表格、列表、引用等）"
+          class="w-full px-3.5 py-2.5 rounded-xl bg-bg border border-indigo-100 text-sm focus:outline-none focus:ring-2 focus:ring-primary resize-y"></textarea>
+      </div>
+      <div>
+        <label for="tInput" class="block text-sm font-semibold mb-1.5">问题类型</label>
+        <input id="tInput" list="typeOptions" value="问答" placeholder="概念 / 原理 / 实践…"
+          class="w-full px-3.5 py-2.5 rounded-xl bg-bg border border-indigo-100 text-sm focus:outline-none focus:ring-2 focus:ring-primary">
+        <datalist id="typeOptions">
+          <option value="问答"><option value="概念"><option value="原理"><option value="对比"><option value="实践"><option value="排查"><option value="配置">
+        </datalist>
+      </div>
+
+      <!-- AI 补充讲解：独立整段布局，标题与按钮同行，文本框满宽与答案框一致 -->
+      <div class="rounded-2xl bg-indigo-50/40 border border-indigo-100 p-4">
+        <div class="flex items-center justify-between gap-3 mb-2.5">
+          <label for="summaryInput" class="text-sm font-semibold text-primary">
+            AI 补充讲解
+            <span class="text-slate-400 font-normal text-xs">（可选，结合问题+答案生成）</span>
+          </label>
+          <button id="aiExplainFormBtn" type="button" onclick="aiSummarizeFromForm(this)"
+            title="AI 结合问题+答案生成补充讲解并保存"
+            class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-indigo-50 border border-indigo-100 text-primary cursor-pointer transition-colors duration-200 hover:bg-indigo-100 text-xs sm:text-sm font-bold shrink-0 disabled:opacity-60 disabled:cursor-wait">
+            <svg id="aiExplainSpinner" class="w-4 h-4 animate-spin hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M21 12a9 9 0 1 1-6.219-8.56" stroke-linecap="round"/></svg>
+            <svg id="aiExplainSpark" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.9 5.7L19.6 10l-5.7 1.9L12 17.6l-1.9-5.7L4.4 10l5.7-1.3z"/><path d="M19 15l.9 2.6L22.5 18.5l-2.6.9L19 22l-.9-2.6-2.6-.9 2.6-.9z"/></svg>
+            <span id="aiExplainLabel">AI 讲解</span>
+          </button>
+        </div>
+        <textarea id="summaryInput" rows="6" placeholder="底部展示的补充讲解：解题思路、关键概念延伸、易混淆点对比等"
+          class="w-full px-3.5 py-2.5 rounded-xl bg-white border border-indigo-100 text-sm focus:outline-none focus:ring-2 focus:ring-primary resize-y"></textarea>
+      </div>
+      <p id="editWarn" class="hidden text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+        注意：这是从笔记导入的题目。修改答案会使其偏离原文，请谨慎操作。
+      </p>
+      <div class="flex justify-end gap-2 pt-2">
+        <button type="button" onclick="closeCardModal()"
+          class="px-4 py-2.5 rounded-xl bg-gray-100 text-sm font-bold cursor-pointer transition-colors duration-200 hover:bg-gray-200">取消</button>
+        <button type="submit"
+          class="px-5 py-2.5 rounded-xl bg-primary text-white text-sm font-bold cursor-pointer transition-colors duration-200 hover:bg-primaryLight">保存题目</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ========== 导入笔记弹窗 ========== -->
+<div id="importModal" class="modal-overlay hidden fixed inset-0 z-50 flex items-center justify-center p-4">
+  <div class="absolute inset-0 bg-ink/40 backdrop-blur-sm" onclick="closeImportModal()" aria-hidden="true"></div>
+  <div class="modal-panel relative w-full max-w-3xl bg-white rounded-card shadow-2xl p-6 sm:p-10 max-h-[90vh] overflow-y-auto">
+    <div class="flex items-center justify-between mb-5">
+      <h3 class="text-lg font-bold">导入笔记生成题目</h3>
+      <button onclick="closeImportModal()" aria-label="关闭弹窗"
+        class="p-2 rounded-lg cursor-pointer transition-colors duration-200 hover:bg-gray-100">
+        <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+
+    <!-- 步骤一：选择来源 -->
+    <div id="importStep1">
+      <!-- 文件上传区 -->
+      <div id="dropZone"
+        ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event)"
+        class="border-2 border-dashed border-indigo-200 rounded-card p-8 text-center cursor-pointer transition-colors duration-200 hover:border-primary hover:bg-indigo-50/50">
+        <input type="file" id="fileInput" accept=".md,.markdown,.txt,.pdf" class="hidden" onchange="handleFileSelect(this.files[0])">
+        <svg class="w-10 h-10 mx-auto text-primaryLight mb-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        <p class="font-semibold text-sm">拖拽文件到此处，或 <span class="text-primary underline underline-offset-2">点击选择文件</span></p>
+        <p class="text-xs text-slate-400 mt-1.5">支持 Markdown / TXT / PDF，单文件不超过 20MB</p>
+      </div>
+
+      <div class="flex items-center gap-3 my-5">
+        <div class="flex-1 h-px bg-indigo-100"></div>
+        <span class="text-xs text-slate-400 font-medium">或者粘贴笔记文本</span>
+        <div class="flex-1 h-px bg-indigo-100"></div>
+      </div>
+
+      <textarea id="pasteArea" rows="6" placeholder="将笔记内容粘贴到这里…（# 标题将被识别为问题）"
+        class="w-full px-3.5 py-2.5 rounded-xl bg-bg border border-indigo-100 text-sm focus:outline-none focus:ring-2 focus:ring-primary resize-y"></textarea>
+
+      <!-- 导入方式选择 -->
+      <div class="mt-4 space-y-2.5">
+        <label class="flex items-start gap-3 p-3.5 rounded-xl border-2 border-indigo-100 cursor-pointer transition-colors duration-200 hover:bg-indigo-50/50 has-[:checked]:border-primary has-[:checked]:bg-indigo-50/70">
+          <input type="radio" name="importMode" value="rule" checked class="mt-0.5 accent-[#4F46E5]" onchange="onModeChange()">
+          <div>
+            <div class="text-sm font-bold">结构化解析（推荐，无需 AI）</div>
+            <p class="text-xs text-slate-500 mt-0.5">识别「# 问题标题 + 正文答案」格式的 Markdown，答案与原文完全一致，绝不篡改</p>
+          </div>
+        </label>
+        <label class="flex items-start gap-3 p-3.5 rounded-xl border-2 border-indigo-100 cursor-pointer transition-colors duration-200 hover:bg-indigo-50/50 has-[:checked]:border-primary has-[:checked]:bg-indigo-50/70">
+          <input type="radio" name="importMode" value="ai" class="mt-0.5 accent-[#4F46E5]" onchange="onModeChange()">
+          <div>
+            <div class="text-sm font-bold flex items-center gap-1.5">AI 智能提取
+              <span id="aiNotConfiguredTip" class="hidden text-[11px] font-normal text-amber-600">(未配置 AI)</span>
+            </div>
+            <p class="text-xs text-slate-500 mt-0.5">调用 OpenAI 兼容接口分析任意格式笔记，自动出题；生成结果先预览确认后入库</p>
+            <div id="aiCountWrap" class="hidden mt-2 flex items-center gap-2 text-xs text-slate-500">
+              出题数量上限：
+              <input type="number" id="aiCount" min="1" max="50" value="15"
+                class="w-16 px-2 py-1 rounded-lg bg-white border border-indigo-100 focus:outline-none focus:ring-2 focus:ring-primary">
+            </div>
+          </div>
+        </label>
+      </div>
+
+      <div class="flex justify-end gap-2 mt-5">
+        <button onclick="closeImportModal()" class="px-4 py-2.5 rounded-xl bg-gray-100 text-sm font-bold cursor-pointer transition-colors duration-200 hover:bg-gray-200">取消</button>
+        <button onclick="startImport()" id="importGoBtn"
+          class="px-5 py-2.5 rounded-xl bg-primary text-white text-sm font-bold cursor-pointer transition-colors duration-200 hover:bg-primaryLight disabled:opacity-40 disabled:cursor-not-allowed">开始导入</button>
+      </div>
+    </div>
+
+    <!-- 步骤二：AI 预览确认 -->
+    <div id="importStep2" class="hidden">
+      <div class="flex items-center justify-between mb-3">
+        <p class="text-sm font-semibold">AI 已生成候选题目，请确认后入库</p>
+        <span id="previewCount" class="text-xs text-slate-400"></span>
+      </div>
+      <div id="previewList" class="space-y-3 max-h-[45vh] overflow-y-auto pr-1"></div>
+      <div class="flex items-center gap-2 mt-4">
+        <label class="flex items-center gap-1.5 text-xs text-slate-500 cursor-pointer">
+          <input type="checkbox" id="checkAllPreview" checked onchange="toggleAllPreview(this.checked)" class="accent-[#4F46E5]">
+          全选
+        </label>
+      </div>
+      <div class="flex justify-end gap-2 mt-3">
+        <button onclick="backToStep1()" class="px-4 py-2.5 rounded-xl bg-gray-100 text-sm font-bold cursor-pointer transition-colors duration-200 hover:bg-gray-200">上一步</button>
+        <button onclick="confirmImport()" id="confirmImportBtn"
+          class="px-5 py-2.5 rounded-xl bg-cta text-white text-sm font-bold cursor-pointer transition-colors duration-200 hover:bg-green-600 disabled:opacity-40 disabled:cursor-not-allowed">确认入库</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ========== Toast 提示 ========== -->
+<div id="toastBox" class="fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] space-y-2 pointer-events-none"></div>
+
+<script src="/static/js/app.js?v=20250824"></script>
+</body>
+</html>
