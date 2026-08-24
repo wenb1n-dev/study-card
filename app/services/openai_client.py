@@ -80,9 +80,12 @@ def extract_json_array(text: str) -> List[Dict[str, Any]]:
     """
     从 AI 回复文本中提取 JSON 数组。
 
-    大模型可能输出 ```json 代码块包裹或夹杂说明文字，
-    这里做健壮解析：定位第一个 '[' 到最后一个 ']'。
+    大模型可能输出 ```json 代码块包裹或夹杂说明文字，也可能因 max_tokens 限制
+    被截断（缺结尾 ]）。这里做健壮解析：定位第一个 '['，优先整体解析；
+    若被截断则尝试回退到最后一个完整对象边界，恢复一个有效前缀数组。
     """
+    import re
+
     text = text.strip()
     # 去除 markdown 代码块围栏
     if "```" in text:
@@ -97,13 +100,40 @@ def extract_json_array(text: str) -> List[Dict[str, Any]]:
                 break
 
     start = text.find("[")
-    end = text.rfind("]")
-    if start == -1 or end == -1 or end <= start:
+    if start == -1:
         raise ValueError("AI 返回内容中未找到有效的 JSON 数组")
 
-    try:
-        arr = json.loads(text[start : end + 1])
-    except json.JSONDecodeError as e:
-        raise ValueError(f"AI 返回的 JSON 解析失败: {e}") from e
+    end = text.rfind("]")
+    if end != -1 and end > start:
+        try:
+            arr = json.loads(text[start : end + 1])
+            return arr if isinstance(arr, list) else []
+        except json.JSONDecodeError as e:
+            raise ValueError(f"AI 返回的 JSON 解析失败: {e}") from e
 
-    return arr if isinstance(arr, list) else []
+    # 没有结尾 ]：视为被 max_tokens 截断，尝试从最后一个完整对象边界恢复
+    recovered = _recover_truncated_array(text[start:])
+    if recovered is None:
+        raise ValueError("AI 返回内容被截断，未形成完整的 JSON 数组")
+    return recovered
+
+
+def _recover_truncated_array(body: str) -> List[Dict[str, Any]] | None:
+    """
+    输入以 '[' 开头的、被截断的 JSON 数组文本（缺少结尾 ]）。
+    回退到最后一个完整对象（} 后跟逗号或结尾）的位置，补齐 ']' 后尝试解析，
+    从而丢弃不完整的最后一个元素，保留之前所有完整题目。
+    """
+    import re
+
+    matches = list(re.finditer(r"\}\s*(?:,|\s*$)", body))
+    for m in reversed(matches):
+        pos = m.end()
+        candidate = body[:pos].rstrip(",") + "]"
+        try:
+            arr = json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(arr, list):
+            return arr
+    return None

@@ -77,8 +77,8 @@ def parse_markdown_qa(content: str) -> List[Dict[str, str]]:
                 {
                     "question": current_question.strip(),
                     "answer": body,
-                    # 规则解析无法判断类型，统一归为「问答」，用户可在前端修改
-                    "question_type": "问答",
+                    # 规则解析无法判断分类，留空，用户可在前端编辑时填入（如 kafka、redis、mysql）
+                    "question_type": "",
                     "ai_summary": "",
                 }
             )

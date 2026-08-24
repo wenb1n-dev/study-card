@@ -28,6 +28,7 @@ async def import_file(
     file: UploadFile = File(..., description="md/txt/pdf 笔记文件"),
     use_ai: bool = Form(False, description="是否调用 AI 智能提取（False 时仅支持规则解析 markdown 结构）"),
     count: int = Form(10, ge=1, le=50, description="AI 模式下期望生成的题目数量"),
+    deck_id: int = Form(0, description="目标题库主题 ID，0 表示默认题库"),
 ):
     """
     上传笔记文件：
@@ -79,5 +80,5 @@ async def import_file(
 
     items = [CardCreate(**pair) for pair in qa_pairs]
     # batch_create 为同步路由处理函数，直接调用即可（FastAPI 自动放线程池）
-    result = _batch_create_impl(items)
+    result = _batch_create_impl(items, deck_id=deck_id)
     return {"mode": "rule", "text_length": len(text), **result}

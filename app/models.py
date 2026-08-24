@@ -14,8 +14,9 @@ class CardCreate(BaseModel):
     """新建题目请求体"""
     question: str = Field(..., min_length=1, description="卡片正面：问题")
     answer: str = Field(..., min_length=1, description="卡片背面：答案")
-    question_type: str = Field(default="问答", description="问题类型")
+    question_type: str = Field(default="", description="题目所属分类/主题（如 kafka、redis、mysql 等，可空）")
     ai_summary: str = Field(default="", description="AI 辅助总结")
+    deck_id: Optional[int] = Field(None, description="所属题库主题 ID，缺省归入默认题库")
 
 
 class CardUpdate(BaseModel):
@@ -24,6 +25,7 @@ class CardUpdate(BaseModel):
     answer: Optional[str] = Field(None, min_length=1)
     question_type: Optional[str] = None
     ai_summary: Optional[str] = None
+    deck_id: Optional[int] = None
 
 
 class Card(BaseModel):
@@ -34,6 +36,8 @@ class Card(BaseModel):
     question_type: str
     ai_summary: str
     source: str
+    deck_id: int
+    deck_name: str = ""
     created_at: str
     updated_at: str
 
@@ -60,6 +64,8 @@ class WrongBookItem(BaseModel):
     ai_summary: str
     wrong_count: int
     last_wrong_at: str
+    deck_id: int = 0
+    deck_name: str = ""
 
 
 # ---------- AI 配置 ----------
@@ -87,7 +93,7 @@ class GenerateItem(BaseModel):
     """AI 生成的候选题目（预览阶段，尚未入库）"""
     question: str
     answer: str
-    question_type: str = "问答"
+    question_type: str = ""
     ai_summary: str = ""
 
 
@@ -95,6 +101,8 @@ class GenerateRequest(BaseModel):
     """从笔记文本生成题目的请求体"""
     text: str = Field(..., min_length=10, description="笔记原文内容")
     count: int = Field(default=5, ge=1, le=20, description="期望生成的题目数量上限")
+    auto_category: bool = Field(default=True, description="是否由 AI 自动识别题目所属分类/主题（如 kafka、redis、mysql）")
+    mode: str = Field(default="extract", description="extract=从笔记提取已有问答（答案逐字原文）；generate=基于笔记自动出题（AI 生成新问答）")
 
 
 class GenerateResponse(BaseModel):
@@ -107,3 +115,4 @@ class ConfirmImportRequest(BaseModel):
     """确认入库请求体：将预览的题目批量写入题库"""
     items: List[GenerateItem] = Field(..., min_length=1)
     source: Literal["manual", "import", "ai"] = "ai"
+    deck_id: int = Field(0, description="目标题库主题 ID，0 表示默认题库")

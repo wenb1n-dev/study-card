@@ -26,9 +26,25 @@ async function api(path, options = {}) {
   let data = null;
   try { data = await resp.json(); } catch (_) { /* 非 JSON 响应忽略 */ }
   if (!resp.ok) {
-    throw new Error((data && data.detail) || `请求失败 (${resp.status})`);
+    throw new Error(apiErrorText(data) || `请求失败 (${resp.status})`);
   }
   return data;
+}
+
+/** 将后端错误响应转换为可读文案（兼容 FastAPI 的 detail 为字符串/对象/校验错误数组） */
+function apiErrorText(data) {
+  if (!data) return '';
+  const d = data.detail;
+  if (!d) return '';
+  if (typeof d === 'string') return d;
+  if (Array.isArray(d)) {
+    return d.map(e => {
+      const where = Array.isArray(e.loc) ? e.loc.slice(1).join('.') : '';
+      return where ? `${where}: ${e.msg}` : e.msg;
+    }).join('；');
+  }
+  if (typeof d === 'object') return Object.values(d).join('；');
+  return String(d);
 }
 
 /** Toast 轻提示：type = success | error | info */
@@ -63,8 +79,15 @@ function switchView(name) {
   });
 
   // 进入视图时按需刷新数据
-  if (name === 'study') refreshDeck();
-  if (name === 'manage') { loadCards(); loadTypes(); }
+  if (name === 'study') {
+    // 学习题库由管理界面「学习题库设置」配置；文件夹「去学习」可临时覆盖（不持久化）
+    studyState.deckIds = deckState.studyOverride
+      ? deckState.studyOverride
+      : getStudyDeckConfig();
+    deckState.studyOverride = null;
+    refreshDeck();
+  }
+  if (name === 'manage') { loadDecks(); updateManageMode(); loadTypes(); }
   if (name === 'wrongbook') loadWrongBook();
   if (name === 'settings') loadAISettings();
 }
@@ -73,7 +96,7 @@ function switchView(name) {
 let searchTimer = null;
 function debounceSearch() {
   clearTimeout(searchTimer);
-  searchTimer = setTimeout(loadCards, 300);
+  searchTimer = setTimeout(updateManageMode, 300);
 }
 
 /* ==================== 2. 学习模式 ==================== */
@@ -84,12 +107,15 @@ const studyState = {
   index: 0,          // 当前卡片下标
   mode: 'all',       // all=全部 / wrong=错题重练
   shuffle: false,    // 打乱开关
+  deckIds: [],       // 选中的题库主题 ID 列表（空数组 = 全部题库）
   stats: { correct: 0, wrong: 0 }, // 本轮统计
 };
 
 async function refreshDeck() {
   try {
-    const cards = await api(`/api/study/deck?mode=${studyState.mode}&shuffle=${studyState.shuffle}`);
+    // 多选题库：以逗号拼接选中的题库 ID 传入后端过滤（空=全部）
+    const deckParam = (studyState.deckIds && studyState.deckIds.length) ? `&deck_ids=${studyState.deckIds.join(',')}` : '';
+    const cards = await api(`/api/study/deck?mode=${studyState.mode}&shuffle=${studyState.shuffle}${deckParam}`);
     studyState.deck = cards;
     studyState.index = 0;
     studyState.stats = { correct: 0, wrong: 0 };
@@ -147,8 +173,11 @@ function renderCurrentCard() {
   // 标题栏按钮文案随状态变化：有讲解显示「重新讲解」
   const labelEl = document.getElementById('aiExplainLabelCard');
   if (labelEl && !labelEl.dataset.loading) labelEl.textContent = hasSummary ? '重新讲解' : 'AI 讲解';
-  document.getElementById('cardTypeFront').textContent = card.question_type;
-  document.getElementById('cardTypeBack').textContent = card.question_type;
+  // 类型徽章：分类/主题 + 所属题库名，便于区分多题库
+  let frontLabel = card.question_type || '未分类';
+  if (card.deck_name) frontLabel += ` · ${card.deck_name}`;
+  document.getElementById('cardTypeFront').textContent = frontLabel;
+  document.getElementById('cardTypeBack').textContent = frontLabel;
 
   // 切换题目时复位到正面
   unflip();
@@ -276,11 +305,400 @@ document.addEventListener('keydown', (e) => {
   else if (e.key === '2') markResult('correct');
 });
 
+/* ==================== 2.5 题库主题（文件夹式管理 + 学习配置） ==================== */
+
+// 题库主题状态
+const deckState = {
+  list: [],                  // [{id, name, card_count}]
+  expanded: new Set(),       // 管理视图中已展开的文件夹（按 deck id）
+  studyOverride: null,       // 临时学习指定题库（来自文件夹「去学习」按钮），不持久化
+};
+
+// 学习题库选择配置（localStorage 持久化，空数组表示学习全部）
+const STUDY_DECK_KEY = 'studyDeckIds';
+function getStudyDeckConfig() {
+  try { return JSON.parse(localStorage.getItem(STUDY_DECK_KEY) || '[]'); }
+  catch { return []; }
+}
+function setStudyDeckConfig(ids) {
+  localStorage.setItem(STUDY_DECK_KEY, JSON.stringify(ids));
+}
+
+/** 拉取题库主题列表并刷新管理视图的文件夹 */
+async function loadDecks() {
+  try {
+    deckState.list = await api('/api/decks');
+  } catch (e) {
+    toast(`加载题库列表失败：${e.message}`, 'error');
+    deckState.list = [];
+  }
+  renderDeckFolders();
+}
+
+/** 渲染管理视图的文件夹列表（每个题库一个文件夹，点击展开题目） */
+function renderDeckFolders() {
+  const box = document.getElementById('deckFolders');
+  if (!box) return;
+  box.innerHTML = '';
+  if (deckState.list.length === 0) {
+    box.innerHTML = '<div class="text-center py-16 text-slate-400 text-sm">还没有题库，点击右上角「新建题库」开始吧</div>';
+    return;
+  }
+  for (const d of deckState.list) {
+    box.appendChild(buildFolderEl(d));
+  }
+}
+
+/** 构建单个题库文件夹元素 */
+function buildFolderEl(d) {
+  const open = deckState.expanded.has(d.id);
+  const folder = document.createElement('div');
+  folder.className = 'bg-white rounded-card border border-indigo-100 shadow-sm overflow-hidden';
+
+  // 文件夹头部：点击展开/收起；右侧常驻操作按钮（去学习/重命名/删除），比悬浮图标更友好
+  const header = document.createElement('button');
+  header.type = 'button';
+  header.className = 'w-full flex items-center gap-2 px-4 py-3 text-left cursor-pointer transition-colors duration-200 hover:bg-indigo-50/60 focus:outline-none focus-visible:ring-2 ring-primary';
+  header.innerHTML = `
+    <svg class="w-4 h-4 text-primary transition-transform duration-200 ${open ? 'rotate-90' : ''}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
+    <svg class="w-5 h-5 text-primary/80" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+    <span class="font-bold text-sm flex-1 truncate">${escapeHtml(d.name)}</span>
+    <span class="text-xs text-slate-400">${d.card_count} 题</span>
+  `;
+  header.onclick = () => toggleFolder(d.id);
+
+  // 操作按钮组（常驻显示，避免悬浮才出现导致不易操作）
+  const ops = document.createElement('div');
+  ops.className = 'flex items-center gap-1 shrink-0';
+  ops.onclick = (e) => e.stopPropagation();
+  ops.appendChild(folderActionBtn('去学习', 'M5 3l14 9-14 9V3z', () => startStudyDeck(d.id)));
+  ops.appendChild(folderActionBtn('AI 分类', 'M12 3l1.9 5.7L19.6 10l-5.7 1.9L12 17.6l-1.9-5.7L4.4 10l5.7-1.3z', () => autoCategorizeAll(d.id)));
+  ops.appendChild(folderActionBtn('重命名', 'M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z', () => renameDeck(d.id, d.name)));
+  ops.appendChild(folderActionBtn('删除', 'M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6', () => deleteDeck(d.id, d.name), true));
+  header.appendChild(ops);
+
+  // 文件夹内容区（展开时加载该题库题目）
+  const body = document.createElement('div');
+  body.id = `folder-body-${d.id}`;
+  body.className = `border-t border-indigo-100 ${open ? '' : 'hidden'}`;
+  if (open) loadFolderCards(d.id, body);
+
+  folder.appendChild(header);
+  folder.appendChild(body);
+  return folder;
+}
+
+/** 文件夹头部操作按钮（小号文字+图标） */
+function folderActionBtn(label, path, onClick, danger = false) {
+  const b = document.createElement('button');
+  b.type = 'button';
+  const color = danger
+    ? 'text-danger hover:bg-danger/10'
+    : 'text-slate-500 hover:bg-indigo-50 hover:text-primary';
+  b.className = `inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium cursor-pointer transition-colors duration-200 ${color}`;
+  b.innerHTML = `<svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${path}"/></svg>${label}`;
+  b.onclick = onClick;
+  return b;
+}
+
+/** 展开/收起文件夹，首次展开时加载题目 */
+function toggleFolder(id) {
+  if (deckState.expanded.has(id)) deckState.expanded.delete(id);
+  else deckState.expanded.add(id);
+  const body = document.getElementById(`folder-body-${id}`);
+  if (!body) return;
+  const open = deckState.expanded.has(id);
+  body.classList.toggle('hidden', !open);
+  // 同步箭头旋转
+  const header = body.previousElementSibling;
+  const chevron = header?.querySelector('svg');
+  if (chevron) chevron.classList.toggle('rotate-90', open);
+  if (open) loadFolderCards(id, body);
+}
+
+/** 加载某题库下的题目并渲染到文件夹内容区 */
+async function loadFolderCards(deckId, bodyEl) {
+  bodyEl.innerHTML = '<div class="px-4 py-6 text-center text-xs text-slate-400">加载中…</div>';
+  try {
+    const params = new URLSearchParams({ page: 1, page_size: 100, deck_id: deckId });
+    const data = await api(`/api/cards?${params}`);
+    bodyEl.innerHTML = '';
+    if (data.total === 0) {
+      bodyEl.innerHTML = '<div class="px-4 py-10 text-center text-sm text-slate-400">该题库还没有题目，点击上方「新增题目」或「导入笔记」添加</div>';
+      return;
+    }
+    const grid = document.createElement('div');
+    grid.className = 'p-3 grid gap-3 max-h-[42vh] overflow-y-auto';
+    for (const card of data.items) grid.appendChild(buildCardItem(card));
+    bodyEl.appendChild(grid);
+  } catch (e) {
+    bodyEl.innerHTML = `<div class="px-4 py-6 text-center text-xs text-danger">加载失败：${escapeHtml(e.message)}</div>`;
+  }
+}
+
+/* ---------- 通用确认 / 输入弹窗（替代原生 confirm / prompt，统一视觉风格） ---------- */
+
+let promptModalState = null;
+
+/**
+ * 打开通用弹窗
+ * @param {Object} opt {title, message, value, placeholder, confirmText, danger, onConfirm(value)}
+ *   - danger: true 时呈现删除警示样式（红），否则为主题色（用于重命名/新建）
+ *   - 传 value 或 placeholder 时显示输入框；否则为纯确认弹窗
+ */
+function openPromptModal(opt) {
+  const titleEl = document.getElementById('promptModalTitle');
+  const msgEl = document.getElementById('promptModalMsg');
+  const inputEl = document.getElementById('promptModalInput');
+  const iconEl = document.getElementById('promptModalIcon');
+  const confirmBtn = document.getElementById('promptModalConfirm');
+
+  titleEl.textContent = opt.title || '提示';
+  msgEl.textContent = opt.message || '';
+
+  // 输入框：仅在需要输入时显示
+  if (opt.value !== undefined || opt.placeholder !== undefined) {
+    inputEl.classList.remove('hidden');
+    inputEl.value = opt.value || '';
+    inputEl.placeholder = opt.placeholder || '';
+  } else {
+    inputEl.classList.add('hidden');
+    inputEl.value = '';
+  }
+
+  // 图标与确认按钮样式：删除用危险色警示，其余用主题色
+  if (opt.danger) {
+    iconEl.className = 'shrink-0 w-10 h-10 rounded-full flex items-center justify-center bg-danger/10 text-danger';
+    iconEl.innerHTML = '<svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>';
+    confirmBtn.className = 'px-5 py-2.5 rounded-xl bg-danger text-white text-sm font-bold cursor-pointer transition-colors duration-200 hover:bg-red-600 focus:outline-none focus-visible:ring-2 ring-danger';
+  } else {
+    iconEl.className = 'shrink-0 w-10 h-10 rounded-full flex items-center justify-center bg-primary/10 text-primary';
+    iconEl.innerHTML = '<svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>';
+    confirmBtn.className = 'px-5 py-2.5 rounded-xl bg-primary text-white text-sm font-bold cursor-pointer transition-colors duration-200 hover:bg-primaryLight focus:outline-none focus-visible:ring-2 ring-primary';
+  }
+  confirmBtn.textContent = opt.confirmText || '确定';
+
+  promptModalState = opt;
+  showModal('promptModal');
+  // 含输入框时自动聚焦并全选，方便直接覆盖输入
+  if (!inputEl.classList.contains('hidden')) {
+    setTimeout(() => { inputEl.focus(); inputEl.select(); }, 50);
+  }
+}
+
+/** 确认按钮：取值后回调并关闭 */
+function confirmPromptModal() {
+  if (!promptModalState) return;
+  const inputEl = document.getElementById('promptModalInput');
+  const value = inputEl.classList.contains('hidden') ? null : inputEl.value.trim();
+  const cb = promptModalState.onConfirm;
+  closePromptModal();
+  if (cb) cb(value);
+}
+
+/** 关闭通用弹窗 */
+function closePromptModal() {
+  hideModal('promptModal');
+  promptModalState = null;
+}
+
+/* ---------- 题库 CRUD ---------- */
+
+/** 新建题库主题，建好后自动展开该文件夹 */
+function createDeck() {
+  openPromptModal({
+    title: '新建题库主题',
+    message: '为新的题库主题输入名称',
+    placeholder: '例如：Kafka 核心概念',
+    confirmText: '创建',
+    onConfirm: async (name) => {
+      if (!name) return;
+      try {
+        const d = await api('/api/decks', { method: 'POST', body: { name } });
+        toast('题库已创建', 'success');
+        deckState.expanded.add(d.id);  // 新建后自动展开
+        await loadDecks();
+      } catch (e) {
+        toast(e.message, 'error');
+      }
+    }
+  });
+}
+
+/** 重命名题库主题 */
+function renameDeck(id, oldName) {
+  openPromptModal({
+    title: '重命名题库主题',
+    message: '为该题库主题输入新的名称',
+    value: oldName,
+    placeholder: '请输入新的题库名称',
+    confirmText: '重命名',
+    onConfirm: async (name) => {
+      if (!name) return;
+      try {
+        await api(`/api/decks/${id}`, { method: 'PUT', body: { name } });
+        toast('题库已重命名', 'success');
+        await loadDecks();
+      } catch (e) {
+        toast(e.message, 'error');
+      }
+    }
+  });
+}
+
+/** 删除题库主题（级联删除其下题目） */
+function deleteDeck(id, name) {
+  openPromptModal({
+    title: '删除题库主题',
+    message: `确定删除题库「${name}」吗？其下全部题目将一并删除，且不可恢复。`,
+    confirmText: '删除',
+    danger: true,
+    onConfirm: async () => {
+      try {
+        await api(`/api/decks/${id}`, { method: 'DELETE' });
+        toast('题库已删除', 'success');
+        deckState.expanded.delete(id);
+        await loadDecks();
+        // 同步学习配置：移除被删题库
+        setStudyDeckConfig(getStudyDeckConfig().filter(x => x !== id));
+        refreshDeck();
+      } catch (e) {
+        toast(e.message, 'error');
+      }
+    }
+  });
+}
+
+/* ---------- 学习题库设置（管理界面配置学习界面的题库） ---------- */
+
+/** 打开「学习题库设置」弹窗 */
+function openStudyDeckSettings() {
+  const list = document.getElementById('studyDeckCheckList');
+  const cfg = getStudyDeckConfig();
+  list.innerHTML = deckState.list.map(d => `
+    <label class="flex items-center gap-3 p-3 rounded-xl border-2 border-indigo-100 cursor-pointer transition-colors duration-200 hover:bg-indigo-50/50 has-[:checked]:border-primary has-[:checked]:bg-indigo-50/70">
+      <input type="checkbox" class="study-deck-check accent-[#4F46E5] w-4 h-4" value="${d.id}" ${cfg.includes(d.id) ? 'checked' : ''}>
+      <span class="text-sm font-medium flex-1">${escapeHtml(d.name)}</span>
+      <span class="text-xs text-slate-400">${d.card_count} 题</span>
+    </label>
+  `).join('');
+  document.getElementById('studyDeckCheckAll').checked =
+    deckState.list.length > 0 && deckState.list.every(d => cfg.includes(d.id));
+  showModal('studyDeckModal');
+}
+
+/** 全选/取消全选 */
+function toggleStudyDeckCheckAll(checked) {
+  document.querySelectorAll('.study-deck-check').forEach(c => { c.checked = checked; });
+}
+
+/** 保存学习题库配置 */
+function saveStudyDeckSettings() {
+  const ids = [...document.querySelectorAll('.study-deck-check')]
+    .filter(c => c.checked).map(c => parseInt(c.value, 10));
+  setStudyDeckConfig(ids);
+  closeStudyDeckSettings();
+  toast('学习题库已更新', 'success');
+}
+
+/** 从文件夹「去学习」直接进入该题库学习（临时覆盖配置，不修改持久设置） */
+function startStudyDeck(deckId) {
+  deckState.studyOverride = [deckId];
+  switchView('study');
+}
+
+/** 关闭学习题库设置弹窗 */
+function closeStudyDeckSettings() {
+  hideModal('studyDeckModal');
+}
+
+/* ---------- 下拉菜单（按功能分组的生产力操作） ---------- */
+
+/** 切换指定下拉菜单的显示，并先关闭其它已展开菜单 */
+function toggleDropdown(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const willOpen = el.classList.contains('hidden');
+  closeDropdowns();
+  if (willOpen) el.classList.remove('hidden');
+}
+
+/** 关闭所有下拉菜单 */
+function closeDropdowns() {
+  document.querySelectorAll('.dropdown-menu').forEach(m => m.classList.add('hidden'));
+}
+
+// 点击菜单以外区域自动收起下拉
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.relative')) closeDropdowns();
+});
+
+/** 调用后端 AI 批量识别并写回所有未分类题目的「分类/主题」 */
+/**
+ * AI 自动分类：仅为「未分类」题目补充主题标签，已分类题目不受影响。
+ * @param {number|null} deckId 指定题库则只处理该题库的未分类题目；缺省处理全部未分类题目
+ */
+async function autoCategorizeAll(deckId = null) {
+  const btn = document.getElementById('autoCateBtn');
+  if (btn) { btn.disabled = true; btn.classList.add('opacity-60', 'cursor-wait'); }
+  toast('正在调用 AI 为未分类题目打标，已分类题目不会变动…', 'info');
+  try {
+    const url = deckId ? `/api/ai/auto-categorize?deck_id=${deckId}` : '/api/ai/auto-categorize';
+    const data = await api(url, { method: 'POST' });
+    if (data.total === 0) {
+      toast('没有需要分类的题目（均已分类）', 'success');
+    } else if (data.updated === 0) {
+      toast(`共 ${data.total} 道未分类题目，AI 暂无法判断其主题`, 'info');
+    } else {
+      toast(`已为 ${data.total} 道未分类题目打标，成功 ${data.updated} 道`, 'success');
+    }
+    await refreshManageData();   // 刷新文件夹徽章
+  } catch (e) {
+    toast(`自动分类失败：${e.message}`, 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.classList.remove('opacity-60', 'cursor-wait'); }
+  }
+}
+
 /* ==================== 3. 题库管理 ==================== */
 
 const cardListState = { page: 1, pageSize: 10 };
 
-/** 加载题目列表（含搜索/筛选/分页） */
+/** 当前是否处于搜索/筛选模式（有搜索词或类型筛选） */
+function isSearchMode() {
+  const s = document.getElementById('searchInput')?.value.trim();
+  const t = document.getElementById('typeFilter')?.value;
+  return Boolean(s || t);
+}
+
+/** 根据是否搜索切换「文件夹」与「搜索结果」两种视图 */
+function updateManageMode() {
+  const folders = document.getElementById('deckFolders');
+  const results = document.getElementById('searchResults');
+  const pag = document.getElementById('pagination');
+  const meta = document.getElementById('cardsMeta');
+  if (isSearchMode()) {
+    folders.classList.add('hidden');
+    results.classList.remove('hidden');
+    pag.classList.remove('hidden');
+    meta.classList.remove('hidden');
+    loadCards();
+  } else {
+    results.classList.add('hidden');
+    results.innerHTML = '';
+    pag.classList.add('hidden');
+    meta.classList.add('hidden');
+    folders.classList.remove('hidden');
+  }
+}
+
+/** 题目增删改/导入后刷新管理视图数据（保持文件夹展开态） */
+async function refreshManageData() {
+  await loadDecks();
+  if (isSearchMode()) loadCards();
+}
+
+/** 加载题目列表（搜索/筛选/分页，跨全部题库） */
 async function loadCards() {
   const search = document.getElementById('searchInput').value.trim();
   const type = document.getElementById('typeFilter').value;
@@ -290,9 +708,10 @@ async function loadCards() {
       page_size: cardListState.pageSize,
       search,
       question_type: type,
+      deck_id: 0,  // 搜索模式跨全部题库
     });
     const data = await api(`/api/cards?${params}`);
-    const listEl = document.getElementById('cardsList');
+    const listEl = document.getElementById('searchResults');
     document.getElementById('cardsMeta').textContent = `共 ${data.total} 题`;
     listEl.innerHTML = '';
 
@@ -311,6 +730,12 @@ async function loadCards() {
   }
 }
 
+/** 类型筛选变化：重置页码并切换视图 */
+function onManageFilterChange() {
+  cardListState.page = 1;
+  updateManageMode();
+}
+
 /** 构建单条题目列表项 */
 function buildCardItem(card) {
   const div = document.createElement('div');
@@ -327,8 +752,9 @@ function buildCardItem(card) {
     <div class="flex items-start justify-between gap-3">
       <div class="min-w-0 flex-1">
         <div class="flex items-center gap-2 mb-1 flex-wrap">
-          <span class="text-xs font-semibold px-2 py-0.5 rounded-full bg-indigo-50 text-primary border border-indigo-100">${escapeHtml(card.question_type)}</span>
+              <span class="text-xs font-semibold px-2 py-0.5 rounded-full bg-indigo-50 text-primary border border-indigo-100">${escapeHtml(card.question_type || '未分类')}</span>
           <span class="text-[11px] text-slate-400">${sourceLabel(card.source)}</span>
+          ${card.deck_name ? `<span class="text-[11px] text-indigo-500 bg-indigo-50/60 px-1.5 py-0.5 rounded-full">${escapeHtml(card.deck_name)}</span>` : ''}
         </div>
         <h3 class="font-bold text-sm mb-1 truncate">${escapeHtml(qShort)}</h3>
         <p class="text-xs text-slate-500 line-clamp-2 leading-relaxed">${escapeHtml(aShort)}</p>
@@ -398,8 +824,13 @@ function openCardModal(card = null) {
   document.getElementById('editCardId').value = card ? card.id : '';
   document.getElementById('qInput').value = card ? card.question : '';
   document.getElementById('aInput').value = card ? card.answer : '';
-  document.getElementById('tInput').value = card ? card.question_type : '问答';
+  document.getElementById('tInput').value = card ? card.question_type : '';
   document.getElementById('summaryInput').value = card ? card.ai_summary : '';
+  // 填充「所属题库」下拉：优先用题目原题库，其次用管理视图当前选中题库
+  const sel = document.getElementById('deckInput');
+  sel.innerHTML = deckState.list.map(d => `<option value="${d.id}">${escapeHtml(d.name)}</option>`).join('');
+  const preferred = card ? card.deck_id : (deckState.list[0] && deckState.list[0].id);
+  sel.value = preferred || '';
   // 导入来源的题目编辑时提醒勿篡改原文答案
   document.getElementById('editWarn').classList.toggle('hidden', !card || card.source === 'manual');
   showModal('cardModal');
@@ -426,8 +857,9 @@ async function submitCardForm(e) {
   const body = {
     question: document.getElementById('qInput').value.trim(),
     answer: document.getElementById('aInput').value.trim(),
-    question_type: document.getElementById('tInput').value.trim() || '问答',
+    question_type: document.getElementById('tInput').value.trim(),
     ai_summary: document.getElementById('summaryInput').value.trim(),
+    deck_id: parseInt(document.getElementById('deckInput').value, 10) || 0,
   };
   try {
     if (id) {
@@ -438,22 +870,29 @@ async function submitCardForm(e) {
       toast('题目已添加', 'success');
     }
     closeCardModal();
-    loadCards();
+    refreshManageData();
   } catch (err) {
     toast(`保存失败：${err.message}`, 'error');
   }
 }
 
-/** 删除题目（二次确认） */
-async function deleteCard(id) {
-  if (!confirm('确定删除这道题目吗？相关错题记录也会一并删除。')) return;
-  try {
-    await api(`/api/cards/${id}`, { method: 'DELETE' });
-    toast('已删除', 'success');
-    loadCards();
-  } catch (e) {
-    toast(`删除失败：${e.message}`, 'error');
-  }
+/** 删除题目（二次确认，使用统一样式弹窗） */
+function deleteCard(id) {
+  openPromptModal({
+    title: '删除题目',
+    message: '确定删除这道题目吗？相关错题记录也会一并删除，且不可恢复。',
+    confirmText: '删除',
+    danger: true,
+    onConfirm: async () => {
+      try {
+        await api(`/api/cards/${id}`, { method: 'DELETE' });
+        toast('已删除', 'success');
+        refreshManageData();
+      } catch (e) {
+        toast(`删除失败：${e.message}`, 'error');
+      }
+    }
+  });
 }
 
 /** 在表单中调用 AI 结合问题+答案生成补充讲解 */
@@ -501,7 +940,7 @@ async function aiSummarizeCard(id) {
     await doSummarize(card.question, card.answer, async s => {
       await api(`/api/cards/${id}`, { method: 'PUT', body: { ai_summary: s } });
       toast('AI 补充讲解已保存', 'success');
-      loadCards();
+      refreshManageData();
     });
   } catch (e) {
     toast(e.message, 'error');
@@ -572,7 +1011,37 @@ const importState = { file: null, previewItems: [] };
 function openImportModal() {
   showStep1();
   showModal('importModal');
+  // 每次打开清空上次残留的导入信息（文件 / 粘贴文本 / 预览 / 错误提示）
+  clearImportInputs();
+  clearImportError();
+  // 填充「导入到题库」下拉，默认选中第一个题库
+  const sel = document.getElementById('importDeckInput');
+  sel.innerHTML = deckState.list.map(d => `<option value="${d.id}">${escapeHtml(d.name)}</option>`).join('');
+  if (deckState.list[0]) sel.value = deckState.list[0].id;
   checkAIConfigured();
+}
+
+/** 清空导入弹窗内的输入残留，保证每次打开都是干净状态 */
+function clearImportInputs() {
+  importState.file = null;
+  importState.previewItems = [];
+  const pa = document.getElementById('pasteArea');
+  if (pa) pa.value = '';
+  const fi = document.getElementById('fileInput');
+  if (fi) fi.value = '';
+}
+
+/** 在弹窗内持久展示导入错误（避免一闪而过） */
+function showImportError(msg) {
+  const el = document.getElementById('importError');
+  if (!el) return;
+  el.textContent = msg;
+  el.classList.remove('hidden');
+  console.error('[导入失败]', msg);
+}
+function clearImportError() {
+  const el = document.getElementById('importError');
+  if (el) { el.classList.add('hidden'); el.textContent = ''; }
 }
 function closeImportModal() {
   hideModal('importModal');
@@ -612,10 +1081,13 @@ async function checkAIConfigured() {
   } catch (_) { /* 忽略 */ }
 }
 
-/** 导入方式切换：AI 模式显示数量输入 */
+/** 导入方式切换：AI 模式显示归类选项；仅「自动生成」显示数量上限 */
 function onModeChange() {
-  const isAI = document.querySelector('input[name="importMode"]:checked').value === 'ai';
-  document.getElementById('aiCountWrap').classList.toggle('hidden', !isAI);
+  const v = document.querySelector('input[name="importMode"]:checked').value;
+  const isAI = v === 'ai-extract' || v === 'ai-generate';
+  document.getElementById('aiCatWrap').classList.toggle('hidden', !isAI);
+  // 题目数量上限仅「自动生成题库」需要；智能提取由 AI 按笔记自行决定数量
+  document.getElementById('aiCountWrap').classList.toggle('hidden', v !== 'ai-generate');
 }
 
 /* ---------- 文件交互 ---------- */
@@ -664,6 +1136,7 @@ async function startImport() {
   const btn = document.getElementById('importGoBtn');
   btn.disabled = true;
   btn.textContent = '处理中…';
+  clearImportError();
 
   try {
     if (mode === 'rule') {
@@ -672,7 +1145,9 @@ async function startImport() {
       await importByAI(pasteText);
     }
   } catch (e) {
-    toast(`导入失败：${e.message}`, 'error');
+    // 在弹窗内持久展示完整错误，避免一闪而过；同时给一个短提示
+    showImportError(`导入失败：${e.message}`);
+    toast('导入失败，详见弹窗内提示', 'error');
   } finally {
     btn.disabled = false;
     btn.textContent = '开始导入';
@@ -689,6 +1164,8 @@ function buildFormData(pasteText, useAI) {
     fd.append('file', new Blob([pasteText], { type: 'text/plain' }), 'pasted-notes.txt');
   }
   fd.append('use_ai', useAI);
+  // 导入到弹窗中选择的题库
+  fd.append('deck_id', parseInt(document.getElementById('importDeckInput').value, 10) || 0);
   if (useAI) fd.append('count', document.getElementById('aiCount').value || 15);
   return fd;
 }
@@ -705,15 +1182,22 @@ async function importByRule(pasteText) {
   }
 }
 
-/** AI 提取导入：先拿文本 → 调 AI → 渲染预览列表 */
+/** AI 提取/生成导入：先拿文本 → 调 AI → 渲染预览列表 */
 async function importByAI(pasteText) {
+  const mode = document.querySelector('input[name="importMode"]:checked').value;
+  const genMode = mode === 'ai-generate' ? 'generate' : 'extract';
   toast('正在提取文本…', 'info');
   const data = await api('/api/import/file', { method: 'POST', body: buildFormData(pasteText, true) });
 
   toast(`AI 正在分析 ${data.text_length} 字符的笔记，可能需要一两分钟…`, 'info');
   const gen = await api('/api/ai/generate', {
     method: 'POST',
-    body: { text: data.text, count: parseInt(document.getElementById('aiCount').value) || 15 },
+    body: {
+      text: data.text,
+      count: parseInt(document.getElementById('aiCount').value) || 15,
+      auto_category: document.getElementById('autoCategory').checked,
+      mode: genMode,
+    },
   });
 
   importState.previewItems = gen.items.map(it => ({ ...it, selected: true }));
@@ -736,8 +1220,12 @@ function renderPreviewList() {
         <input type="checkbox" data-preview="${i}" ${item.selected ? 'checked' : ''}
           onchange="togglePreview(${i}, this.checked)" class="mt-1 accent-[#4F46E5] shrink-0">
         <div class="min-w-0 flex-1">
-          <div class="flex items-center gap-2 mb-1">
-            <span class="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-white text-primary border border-indigo-100">${escapeHtml(item.question_type)}</span>
+          <div class="flex items-center gap-2 mb-1.5">
+            <label class="text-[11px] font-semibold text-slate-400 shrink-0">分类</label>
+            <input type="text" data-typeedit="${i}" value="${escapeHtml(item.question_type || '')}"
+              oninput="importState.previewItems[${i}].question_type = this.value.trim()"
+              placeholder="如 kafka / redis / mysql"
+              class="flex-1 min-w-0 px-2 py-1 rounded-lg bg-white border border-indigo-100 text-[11px] focus:outline-none focus:ring-2 focus:ring-primary">
           </div>
           <p class="font-bold text-sm mb-1.5 break-words">${escapeHtml(item.question)}</p>
           <p class="text-xs text-slate-500 whitespace-pre-wrap break-words line-clamp-4">${escapeHtml(item.answer)}</p>
@@ -772,12 +1260,13 @@ async function confirmImport() {
   const btn = document.getElementById('confirmImportBtn');
   btn.disabled = true;
   try {
-    const data = await api('/api/ai/confirm', { method: 'POST', body: { items } });
+    const data = await api('/api/ai/confirm', { method: 'POST', body: { items, deck_id: parseInt(document.getElementById('importDeckInput').value, 10) || 0 } });
     toast(`入库成功：新增 ${data.inserted} 题${data.skipped ? `，跳过重复 ${data.skipped} 题` : ''}`, 'success');
     closeImportModal();
     switchView('manage');
   } catch (e) {
-    toast(`入库失败：${e.message}`, 'error');
+    showImportError(`入库失败：${e.message}`);
+    toast('入库失败，详见弹窗内提示', 'error');
     btn.disabled = false;
   }
 }
@@ -807,7 +1296,7 @@ async function loadWrongBook() {
           <div class="min-w-0 flex-1 cursor-pointer" onclick='showWrongDetail(${JSON.stringify(card.card_id)})'>
             <div class="flex items-center gap-2 mb-1 flex-wrap">
               <span class="text-xs font-semibold px-2 py-0.5 rounded-full bg-red-50 text-danger border border-red-100">错过 ${card.wrong_count} 次</span>
-              <span class="text-xs font-semibold px-2 py-0.5 rounded-full bg-indigo-50 text-primary border border-indigo-100">${escapeHtml(card.question_type)}</span>
+          <span class="text-xs font-semibold px-2 py-0.5 rounded-full bg-indigo-50 text-primary border border-indigo-100">${escapeHtml(card.question_type || '未分类')}</span>
               <span class="text-[11px] text-slate-400">最近答错：${escapeHtml(card.last_wrong_at || '')}</span>
             </div>
             <h3 class="font-bold text-sm mb-1 break-words">${escapeHtml(qShort)}</h3>

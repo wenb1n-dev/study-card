@@ -16,34 +16,55 @@ router = APIRouter(prefix="/api", tags=["学习与错题本"])
 def get_deck(
     mode: str = Query("all", pattern="^(all|wrong)$", description="all=全部题目 / wrong=仅错题"),
     shuffle: bool = Query(False, description="是否打乱顺序"),
-    limit: int = Query(0, ge=0, description="牌组数量上限，0 表示不限制"),
+    cards: int = Query(0, ge=0, description="牌组数量上限（对应前端 cards 参数），0 表示不限制"),
+    deck_ids: str = Query("", description="逗号分隔的题库主题 ID，空表示全部题库（支持多选）"),
 ):
     """
     获取逐卡学习的题目序列：
     - mode=all：全题库学习
     - mode=wrong：错题重练（仅错题本题目）
     - shuffle：支持随机打乱，避免记忆顺序化
+    - deck_ids：按选中的题库主题筛选（多选），为空则不过滤
     """
+    # 解析并校验 deck_ids，构造 IN 子句参数
+    deck_params: list = []
+    deck_clause = ""
+    if deck_ids:
+        try:
+            deck_params = [int(x) for x in deck_ids.split(",") if x.strip()]
+        except ValueError:
+            deck_params = []
+        if deck_params:
+            placeholders = ",".join("?" * len(deck_params))
+            deck_clause = f" AND c.deck_id IN ({placeholders})"
+
     if mode == "wrong":
         # 错题模式：关联错题表，按最近答错时间倒序（打乱后无意义）
-        sql = """
+        sql = f"""
             SELECT c.id AS card_id, c.question, c.answer, c.question_type, c.ai_summary,
-                   w.wrong_count, w.last_wrong_at
+                   w.wrong_count, w.last_wrong_at,
+                   c.deck_id AS deck_id, d.name AS deck_name
             FROM wrong_book w JOIN cards c ON c.id = w.card_id
+            LEFT JOIN decks d ON d.id = c.deck_id
+            WHERE 1=1{deck_clause}
             ORDER BY w.last_wrong_at DESC
         """
-        rows = query_all(sql)
+        rows = query_all(sql, tuple(deck_params))
     else:
         rows = query_all(
-            "SELECT id AS card_id, question, answer, question_type, ai_summary, "
-            "0 AS wrong_count, '' AS last_wrong_at FROM cards ORDER BY id"
+            f"SELECT c.id AS card_id, c.question, c.answer, c.question_type, c.ai_summary, "
+            f"0 AS wrong_count, '' AS last_wrong_at, "
+            f"c.deck_id AS deck_id, d.name AS deck_name "
+            f"FROM cards c LEFT JOIN decks d ON d.id = c.deck_id "
+            f"WHERE 1=1{deck_clause} ORDER BY c.id",
+            tuple(deck_params),
         )
 
     # 打乱逻辑放在 SQL 之外，保证两种模式的打乱行为一致
     if shuffle:
         random.shuffle(rows)
-    if limit > 0:
-        rows = rows[:limit]
+    if cards > 0:
+        rows = rows[:cards]
 
     return [WrongBookItem(**r) for r in rows]
 
@@ -90,8 +111,10 @@ def list_wrong():
     rows = query_all(
         """
         SELECT c.id AS card_id, c.question, c.answer, c.question_type, c.ai_summary,
-               w.wrong_count, w.last_wrong_at
+               w.wrong_count, w.last_wrong_at,
+               c.deck_id AS deck_id, d.name AS deck_name
         FROM wrong_book w JOIN cards c ON c.id = w.card_id
+        LEFT JOIN decks d ON d.id = c.deck_id
         ORDER BY w.wrong_count DESC, w.last_wrong_at DESC
         """
     )

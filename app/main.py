@@ -14,7 +14,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from .database import init_db
-from .routers import ai, cards, import_router, study
+from .routers import ai, cards, decks, import_router, study
 
 # 静态资源目录（前端单页应用）
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -40,6 +40,7 @@ app.include_router(cards.router)
 app.include_router(study.router)
 app.include_router(ai.router)
 app.include_router(import_router.router)
+app.include_router(decks.router)
 
 # 挂载静态资源
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
