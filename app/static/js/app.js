@@ -1350,13 +1350,17 @@ async function removeFromWrong(cardId) {
   }
 }
 
-/** 刷新导航栏错题角标数量 */
+/** 刷新导航栏错题角标数量（桌面顶部导航 + 移动端底部 Tab 同步） */
 async function refreshWrongBadge() {
   try {
     const data = await api('/api/wrongbook/count');
-    const badge = document.getElementById('wrongBadge');
-    badge.textContent = data.count;
-    badge.classList.toggle('hidden', data.count === 0);
+    // 两处角标（桌面 / 移动端）统一更新
+    for (const id of ['wrongBadge', 'wrongBadgeMobile']) {
+      const badge = document.getElementById(id);
+      if (!badge) continue;
+      badge.textContent = data.count;
+      badge.classList.toggle('hidden', data.count === 0);
+    }
   } catch (_) { /* 静默 */ }
 }
 

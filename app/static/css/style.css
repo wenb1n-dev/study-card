@@ -344,3 +344,61 @@
   background-color: #A5B4FC;
 }
 /* 横向滚动区域（如答案内表格）同样应用细滚动条 */
+
+/* ============================================================
+   移动端适配（< md，覆盖 iPhone 15 Plus 等 430pt 宽机型）
+   1. 视图高度：顶部 header(1rem top + 4rem bar + 1.5rem main 上边距 = 6.5rem)
+      + 底部 Tab 栏(3.5rem) + iOS 底部安全区
+   2. iOS Safari 聚焦输入框时自动放大页面的问题：输入类元素字号不小于 16px
+   3. Toast 上移避开底部 Tab 栏与安全区
+   ============================================================ */
+@media (max-width: 767px) {
+  #view-study,
+  #view-manage,
+  #view-wrongbook {
+    height: calc(100dvh - 6.5rem - 3.5rem - env(safe-area-inset-bottom, 0px));
+  }
+
+  /* 防止 iOS 聚焦表单控件时整页缩放（Safari 对 <16px 输入框会自动 zoom） */
+  input,
+  textarea,
+  select {
+    font-size: 16px;
+  }
+
+  /* Toast 默认 bottom-6 会被底部 Tab 栏遮挡，上移至 Tab 栏上方 */
+  #toastBox {
+    bottom: calc(4.5rem + env(safe-area-inset-bottom, 0px));
+    left: 1rem;
+    right: 1rem;
+    transform: none;
+    /* toastBox 原用 -translate-x-1/2 居中，改为左右定宽后取消位移 */
+  }
+  #toastBox > * {
+    max-width: 100%;
+  }
+
+  /* 弹窗在小屏下贴近全屏高度，避免内容被裁切（提高优先级覆盖 Tailwind 的 max-h-[90vh]） */
+  .modal-overlay:not(.hidden) .modal-panel {
+    max-height: calc(100dvh - 2rem);
+  }
+
+  /* 卡片正面问题文字在小屏适当降字号，避免长问题溢出 */
+  .flip-card .card-front h2 {
+    font-size: 1.125rem;
+  }
+
+  /* 移动端隐藏键盘快捷键提示（无物理键盘） */
+  .study-hint {
+    display: none;
+  }
+}
+
+/* iOS 触摸体验：去除点击高亮闪块 */
+@supports (-webkit-touch-callout: none) {
+  button,
+  [role='button'],
+  .cursor-pointer {
+    -webkit-tap-highlight-color: transparent;
+  }
+}

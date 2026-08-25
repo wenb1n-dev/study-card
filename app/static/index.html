@@ -2,7 +2,8 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- viewport-fit=cover：配合 env(safe-area-inset-*) 适配 iPhone 刘海与底部安全区 -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>学习卡片 StudyCard</title>
   <!-- Tailwind CSS CDN（含 typography 插件：Markdown 答案排版） -->
   <script src="https://cdn.tailwindcss.com?plugins=typography"></script>
@@ -10,7 +11,7 @@
   <script src="https://cdn.jsdelivr.net/npm/marked@12/marked.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
   <!-- 设计系统字体回退：中文优先系统字体栈，避免外部依赖 -->
-  <link rel="stylesheet" href="/static/css/style.css?v=20250905">
+  <link rel="stylesheet" href="/static/css/style.css?v=20260825">
   <script>
     /* Tailwind 自定义主题：设计系统色彩 */
     tailwind.config = {
@@ -44,8 +45,8 @@
       <svg class="w-8 h-8 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg>
       <span class="text-lg font-bold tracking-tight">学习卡片</span>
     </div>
-    <!-- 导航标签 -->
-    <nav class="flex items-center gap-1 sm:gap-2 overflow-x-auto" aria-label="主导航">
+    <!-- 导航标签（仅桌面端显示；移动端使用底部 Tab 栏，避免顶部挤压变形） -->
+    <nav class="hidden md:flex items-center gap-1 sm:gap-2 overflow-x-auto" aria-label="主导航">
       <button data-nav="study" onclick="switchView('study')"
         class="nav-btn flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium cursor-pointer transition-colors duration-200 hover:bg-indigo-50">
         <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="4" width="20" height="16" rx="3"/><path d="M2 9h20"/></svg>
@@ -71,7 +72,7 @@
   </div>
 </header>
 
-<main class="max-w-6xl mx-auto px-4 sm:px-6 py-6 pb-6">
+<main class="max-w-6xl mx-auto px-4 sm:px-6 pt-6 pb-24 md:pb-6">
 
   <!-- ========== 视图一：学习模式 ========== -->
   <section id="view-study" class="view hidden">
@@ -123,7 +124,7 @@
           <div class="card-face card-back bg-gradient-to-br from-white to-indigo-50/80 border-2 border-primaryLight/40 shadow-[0_10px_30px_-10px_rgba(79,70,229,0.35)] rounded-card p-6 sm:p-8 flex flex-col overflow-y-auto lg:overflow-hidden">
             <div class="flex items-center justify-between gap-2 mb-3 shrink-0">
               <div class="flex items-center gap-2 min-w-0">
-                <div class="text-xs font-bold tracking-widest text-primary uppercase shrink-0">学习卡片 · 答案与讲解</div>
+                <div class="hidden sm:block text-xs font-bold tracking-widest text-primary uppercase shrink-0">学习卡片 · 答案与讲解</div>
                 <!-- 生成按钮移至标题栏：始终可点，避免无讲解时右栏隐藏导致无法生成（阻止冒泡，避免触发翻转） -->
                 <button id="aiExplainBtn" type="button" onclick="event.stopPropagation(); aiExplainCurrentCard()"
                   class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-indigo-50 border border-indigo-100 text-primary text-xs font-bold cursor-pointer transition-colors duration-200 hover:bg-indigo-100 focus:outline-none focus-visible:ring-2 ring-primary disabled:cursor-wait shrink-0">
@@ -203,8 +204,8 @@
     </div>
   </section>
 
-   <!-- ========== 视图二：题库管理（文件夹式） ========== -->
-  <section id="view-manage" class="view hidden flex flex-col" style="height:calc(100dvh-7rem)">
+  <!-- ========== 视图二：题库管理（文件夹式）；高度由 style.css 按端型计算，避免内联样式覆盖移动端适配 -->
+  <section id="view-manage" class="view hidden flex flex-col">
     <!-- 顶部操作栏：标题 + 新建题库 + 学习题库设置 -->
     <div class="flex items-center justify-between gap-3 mb-4 shrink-0">
       <h2 class="text-lg font-bold flex items-center gap-2">
@@ -319,6 +320,33 @@
     </div>
   </section>
 </main>
+
+<!-- ========== 移动端底部 Tab 导航（仅小屏显示；复用 nav-btn/data-nav 高亮逻辑） ========== -->
+<nav class="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/90 backdrop-blur border-t border-indigo-100 pb-[env(safe-area-inset-bottom)]" aria-label="移动端导航">
+  <div class="grid grid-cols-4 max-w-md mx-auto">
+    <button data-nav="study" onclick="switchView('study')"
+      class="nav-btn flex flex-col items-center justify-center gap-0.5 mx-1.5 my-1.5 rounded-xl text-[11px] font-medium cursor-pointer transition-colors duration-200">
+      <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="4" width="20" height="16" rx="3"/><path d="M2 9h20"/></svg>
+      学习
+    </button>
+    <button data-nav="manage" onclick="switchView('manage')"
+      class="nav-btn flex flex-col items-center justify-center gap-0.5 mx-1.5 my-1.5 rounded-xl text-[11px] font-medium cursor-pointer transition-colors duration-200">
+      <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+      题库
+    </button>
+    <button data-nav="wrongbook" onclick="switchView('wrongbook')"
+      class="nav-btn relative flex flex-col items-center justify-center gap-0.5 mx-1.5 my-1.5 rounded-xl text-[11px] font-medium cursor-pointer transition-colors duration-200">
+      <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+      错题本
+      <span id="wrongBadgeMobile" class="hidden absolute top-0.5 right-1 min-w-[16px] h-[16px] px-1 rounded-full bg-danger text-white text-[10px] leading-[16px] text-center font-bold"></span>
+    </button>
+    <button data-nav="settings" onclick="switchView('settings')"
+      class="nav-btn flex flex-col items-center justify-center gap-0.5 mx-1.5 my-1.5 rounded-xl text-[11px] font-medium cursor-pointer transition-colors duration-200">
+      <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      设置
+    </button>
+  </div>
+</nav>
 
 <!-- ========== 新增/编辑题目弹窗 ========== -->
 <div id="cardModal" class="modal-overlay hidden fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -552,6 +580,6 @@
 <!-- ========== Toast 提示 ========== -->
 <div id="toastBox" class="fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] space-y-2 pointer-events-none"></div>
 
-<script src="/static/js/app.js?v=20250905"></script>
+<script src="/static/js/app.js?v=20260825"></script>
 </body>
 </html>
