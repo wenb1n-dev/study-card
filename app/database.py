@@ -42,7 +42,7 @@ def init_db() -> None:
                 id            INTEGER PRIMARY KEY AUTOINCREMENT,
                 question      TEXT NOT NULL,              -- 卡片正面：问题
                 answer        TEXT NOT NULL,              -- 卡片背面：答案（必须与笔记原文一致）
-                question_type TEXT NOT NULL DEFAULT '问答',-- 问题类型：概念/原理/实践/对比/排查等
+                question_type TEXT NOT NULL DEFAULT '',-- 问题类型：概念/原理/实践/对比/排查等
                 ai_summary    TEXT NOT NULL DEFAULT '',   -- AI 辅助总结（答案底部展示，不篡改原文）
                 source        TEXT NOT NULL DEFAULT 'manual', -- 来源：manual=手工 / import=文件导入 / ai=AI生成
                 deck_id       INTEGER NOT NULL DEFAULT 1, -- 所属题库主题（外键关联 decks）

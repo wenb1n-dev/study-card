@@ -16,10 +16,11 @@ module.exports = {
     {
       name: "study-card",
       cwd: __dirname,
-      // 使用项目虚拟环境内的 Python 解释器
+      // 显式指定虚拟环境内的 Python 解释器执行 uvicorn 入口脚本，
+      // 避免 PM2 默认用 node 执行导致 SyntaxError
       interpreter: "./.venv/bin/python",
-      script: "-m",
-      args: "uvicorn app.main:app --port 8666 --host 127.0.0.1",
+      script: "./.venv/bin/uvicorn",
+      args: "app.main:app --port 8666 --host 0.0.0.0",
       // 日志落盘，便于排查
       error_file: "data/pm2-error.log",
       out_file: "data/pm2-out.log",
